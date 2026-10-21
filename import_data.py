@@ -81,42 +81,125 @@ def read_predictions():
 
 def read_feedback(valid_keys):
     feedback = []
-    for path in sorted(FEEDBACK_FOLDER.glob("*.xlsx")):
-        df = pd.read_excel(path, engine="openpyxl")
-        df.columns = [str(c).strip().lower() for c in df.columns]
 
-        if "audit id" not in df.columns or "code" not in df.columns:
-            print("Skipping %s: missing Audit ID or Code" % path.name)
+    aliases = {
+        "audit id": ["audit id", "auditid", "audit id "],
+        "code": ["code"],
+        "name": ["name", "auditor name", "auditor"],
+        "model outcome results correct incorrect": [
+            "model outcome results correct incorrect",
+            "model outcome",
+            "model outcome results",
+        ],
+        "auditor comments": ["auditor comments", "auditor comment"],
+        "ai analysis gap": ["ai analysis gap"],
+        "comment": ["comment"],
+        "insights": ["insights"],
+        "category": ["category"],
+    }
+
+    def normalize(value):
+        return (
+            str(value).strip().lower()
+            if pd.notna(value)
+            else ""
+        )
+
+    def normalize_header(value):
+        import re
+        return re.sub(
+            r"[^a-z0-9]+", " ", normalize(value)
+        ).strip()
+
+    for path in sorted(FEEDBACK_FOLDER.glob("*.xlsx")):
+        raw = pd.read_excel(
+            path, header=None, engine="openpyxl"
+        )
+
+        # Find the row containing the actual column headers.
+        header_row = None
+
+        for i, row in raw.iterrows():
+            headers = {
+                normalize_header(value) for value in row
+            }
+            if "audit id" in headers and "code" in headers:
+                header_row = i
+                break
+
+        if header_row is None:
+            print("Skipping %s: header row not found" % path.name)
             continue
-        if "name" not in df.columns:
-            print("Skipping %s: missing Name (auditor name)" % path.name)
-            continue
-        if "model outcome results (correct/incorrect)" not in df.columns:
-            print("Skipping %s: missing Model Outcome Results" % path.name)
+
+        df = pd.read_excel(
+            path, header=header_row, engine="openpyxl"
+        )
+
+        df.columns = [
+            normalize_header(column) for column in df.columns
+        ]
+
+        # Map alternative headers to standard names.
+        for standard_name, possible_names in aliases.items():
+            for possible_name in possible_names:
+                normalized_alias = normalize_header(possible_name)
+                if normalized_alias in df.columns:
+                    df.rename(
+                        columns={normalized_alias: standard_name},
+                        inplace=True,
+                    )
+                    break
+
+        print("%s: %s" % (path.name, df.columns.tolist()))
+
+        required = [
+            "audit id",
+            "code",
+            "model outcome results correct incorrect",
+        ]
+
+        if any(column not in df.columns for column in required):
+            print("Skipping %s: missing required columns" % path.name)
             continue
 
         for _, row in df.iterrows():
             audit_id = audit_id_value(row["audit id"])
             code = code_value(row["code"])
-            if audit_id is None or code is None or (audit_id, code) not in valid_keys:
+
+            if (
+                audit_id is None
+                or code is None
+                or (audit_id, code) not in valid_keys
+            ):
                 continue
 
-            outcome = text_value(row["model outcome results (correct/incorrect)"])
+            outcome = text_value(
+                row["model outcome results correct incorrect"]
+            )
             outcome = outcome.capitalize() if outcome else None
+
             if outcome not in ("Correct", "Incorrect"):
-                print("Skipping row with invalid Model Outcome in %s" % path.name)
+                print(
+                    "Skipping row with invalid Model Outcome in %s"
+                    % path.name
+                )
                 continue
 
             feedback.append({
                 "key": (audit_id, code),
-                "auditor_name": text_value(row["name"]),
+                "auditor_name": text_value(row.get("name")),
                 "model_outcome": outcome,
-                "auditor_comments": text_value(row.get("auditor comments")),
-                "ai_analysis_gap": text_value(row.get("ai analysis gap")),
+                "auditor_comments": text_value(
+                    row.get("auditor comments")
+                ),
+                "ai_analysis_gap": text_value(
+                    row.get("ai analysis gap")
+                ),
                 "diagnosis_type": text_value(row.get("comment")),
                 "insights": text_value(row.get("insights")),
                 "auditor_category": text_value(row.get("category")),
             })
+
     return feedback
 
 
