@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crdt-data-importer"
+version = "0.1.0"
+description = "Import CRDT predictions and auditor feedback into PostgreSQL"
+requires-python = ">=3.10"
+dependencies = [
+  "SQLAlchemy>=2.0,<3.0",
+  "psycopg[binary]>=3.1",
+  "pandas>=2.0",
+  "openpyxl>=3.1",
+  "python-dotenv>=1.0",
+]
+
+[project.scripts]
+crdt-import = "crdt_importer.main:main"
+
+[tool.setuptools.packages.find]
+include = ["crdt_importer*"]
